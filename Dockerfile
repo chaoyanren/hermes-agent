@@ -25,10 +25,16 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends --fix-missing -o Acquire::Retries=5 \
 =======
 # Install system dependencies in one layer, clear APT cache
+# tini reaps orphaned zombie processes (MCP stdio subprocesses, git, bun, etc.)
+# that would otherwise accumulate when hermes runs as PID 1. See #15012.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+<<<<<<< HEAD
 >>>>>>> 2dc5f9d2d387e345d1ac6e05766bcc99e3a115e0
         build-essential nodejs npm python3 ripgrep ffmpeg gcc python3-dev libffi-dev procps git && \
+=======
+        build-essential nodejs npm python3 ripgrep ffmpeg gcc python3-dev libffi-dev procps git openssh-client docker-cli tini && \
+>>>>>>> 6f1eed3968318dc1d6ca3fb3ded2de6fc8e50308
     rm -rf /var/lib/apt/lists/*
 
 # Non-root user for runtime; UID can be overridden via HERMES_UID at runtime
@@ -57,14 +63,21 @@ COPY --chown=hermes:hermes . .
 # Build web dashboard (Vite outputs to hermes_cli/web_dist/)
 RUN cd web && npm run build
 
+# ---------- Permissions ----------
+# Make install dir world-readable so any HERMES_UID can read it at runtime.
+# The venv needs to be traversable too.
+USER root
+RUN chmod -R a+rX /opt/hermes
+# Start as root so the entrypoint can usermod/groupmod + gosu.
+# If HERMES_UID is unset, the entrypoint drops to the default hermes user (10000).
+
 # ---------- Python virtualenv ----------
-RUN chown hermes:hermes /opt/hermes
-USER hermes
 RUN uv venv && \
     uv pip install --no-cache-dir -e ".[all]"
 
 # ---------- Runtime ----------
 ENV HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist
 ENV HERMES_HOME=/opt/data
+ENV PATH="/opt/data/.local/bin:${PATH}"
 VOLUME [ "/opt/data" ]
-ENTRYPOINT [ "/opt/hermes/docker/entrypoint.sh" ]
+ENTRYPOINT [ "/usr/bin/tini", "-g", "--", "/opt/hermes/docker/entrypoint.sh" ]
